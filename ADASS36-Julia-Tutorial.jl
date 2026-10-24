@@ -14,6 +14,13 @@ begin
 	TableOfContents(; title = "Tutorial", depth = 4)
 end
 
+# ╔═╡ 628dc0cc-a29b-4d61-8314-9c9aee5ae8f9
+begin
+	using Downloads
+	image = Downloads.download("https://github.com/barrettp/ADASS-36/raw/main/Zenithal_Projection.jpg")
+	LocalResource(image)
+end
+
 # ╔═╡ 6001288a-7a9d-4020-bf7d-02a0fa250c04
 """
 !!! note "ADASS XXXVI Julia Tutorial"
@@ -662,9 +669,6 @@ The `WorldCoordinates` package uses `project` and `deproject` for the forward an
 The zenithal or azimuthal projection is a commonly-used and simple projection. Let's implement it.
 """
 
-# ╔═╡ 628dc0cc-a29b-4d61-8314-9c9aee5ae8f9
-LocalResource("https://github.com/barrettp/ADASS-36/blob/main/Zenithal_Projection.jpg")
-
 # ╔═╡ 1599a4b2-673d-4dce-8d63-b2a2700107b3
 md"""
 ### Azimuthal Type
@@ -1296,6 +1300,7 @@ md"""
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+Downloads = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 Term = "22787eb5-b846-44ae-b979-8e399b8463ab"
@@ -1312,7 +1317,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.13.2"
 manifest_format = "2.1"
-project_hash = "d02345fba3fea7429354d32108657c78c7f53616"
+project_hash = "8184f189dd7127870805710c62d3b52248a589be"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]

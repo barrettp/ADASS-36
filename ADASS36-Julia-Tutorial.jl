@@ -663,7 +663,7 @@ The zenithal or azimuthal projection is a commonly-used and simple projection. L
 """
 
 # ╔═╡ 628dc0cc-a29b-4d61-8314-9c9aee5ae8f9
-LocalResource("/Users/paul/Downloads/Zenithal Projection.jpg")
+LocalResource("https://github.com/barrettp/ADASS-36/blob/main/Zenithal_Projection.jpg")
 
 # ╔═╡ 1599a4b2-673d-4dce-8d63-b2a2700107b3
 md"""

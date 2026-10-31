@@ -10,7 +10,7 @@ using InteractiveUtils
 
 # ╔═╡ 7c4ebc32-9b8e-4b2a-8f39-f4c351283843
 begin
-	using Dates, LaTeXStrings, PlutoUI, Term
+	using Dates, LaTeXStrings, PlutoUI, Term, Revise
 	TableOfContents(; title = "Tutorial", depth = 4)
 end
 
@@ -499,12 +499,15 @@ julia> using Metal                # Apple Silicon, i.e., M1-5 Mac
 # ╔═╡ cfc57dc3-bb97-4bf2-99e8-241e3f552f1e
 md"""
 ```julia-repl
-julia> xlarge = rand(2^20)
+julia> xlarge = rand(Float32, 2^20)
 
-julia> ylarge = rand(2^20)
+julia> ylarge = rand(Float32, 2^20)
 
-julia> outlarge = zero(xlarge)
+julia> outlarge = similar(xlarge)
 ```
+
+!!! note
+	`similar` creates an uninitialized array using the type and dimensions of the array argumment.
 
 !!! action
 	Create three large arrays in RAM.
@@ -603,11 +606,11 @@ md"""
 
 A key feature of Julia is its ability to call functions using **multiple dispatch**. Unlike most object-oriented languages that use **single dispatch**, such as default Python, Julia was designed to use multiple disptach. This is a very powerful programming feature. When used properly, it both simplifies and reduces the code base, while increasing performance.
 
-**Single dispatch** languages only use the type of the first argument to determine which method (version) to call when a function has several methods (i.e., is overloaded). Let's use the add operator `+(arg1, arg2)` as an example. In this case, only the type of `arg1` is used for calling or dispatching the add operator. `arg2` is ignored.
+**Single dispatch** languages only use the first argument type to determine which method (or version of a function) to call when a function has several methods having different numbers of arguments and different argument types. In other words, the function is overloaded. As an example, let's use the add operator `+(x, y)`. Single dispatch languages only use the first argument type, `x`, to call or dispatch the add operator. The second argument type, `y`, is ignored.
 
-**Multiple dispatch** languages use all of the argument types to determine which method to call when a function is overloaded. Again, using the add operator `+(arg1, arg2)`, both argument types (sp., `arg1` and `arg2`) are used for dispatching the method.
+**Multiple dispatch** languages use all argument types to determine which method to call when a function is overloaded. Again, using the add operator `+(x, y)`, both argument types, `x` and `y`, are used to call or dispatch the method.
 
-For example, if I implement a new number type `Float256` and I want it to integrate with Julia's default number types, say `Float64`, then I should implement two functions, namely, `+(Float256, Float64)` and `+(Float64, Float256)`. No matter the order of the two number types, the add operation will be correctly dispatched.
+For example, if I implement a new number type `Float256` and I want it to integrate with Julia's default number types, say `Float64`, then I should implement two functions, namely, `+(x::Float256, y::Float64)` and `+(x::Float64, y::Float256)`. No matter the order of the two number types, the add operation will be correctly dispatched.
 
 ---
 """
@@ -615,15 +618,17 @@ For example, if I implement a new number type `Float256` and I want it to integr
 
 # ╔═╡ 55845a99-3bf5-4cfa-8cb3-305bdbede994
 md"""
-## World Coordinate System
+# World Coordinate System
 
-The Flexible Image Transport System (FITS) World Coordinate System (WCS) has three basic steps to transform from pixel coordinates to spherical coordinates and vice versa. They are:
+This section and the next will be used to illustrate how to implement code in Julia. The Flexible Image Transport System (FITS) World Coordinate System (WCS) is used as an example. A few components, such as a projection type and its functions, are implmented to provide an outline of a complete system.
+
+WCS has three basic steps to transform from pixel coordinates to spherical coordinates and vice versa. They are:
 
 * Pixel (affine) transformation (i.e., translation, rotation, scale, & shear)
 * Cartographic projection (i.e., planar to spherical coordinates)
 * Spherical transformation (i.e., spherical rotations)
 
-These transformations compose a sequence, i.e., the output of one transformation is the input of the next. So the transformations should be easily composable. This case is commonly implemented as a set of nested functions that are cumbersome to use. For example:
+These transformations compose a sequence, i.e., the output of one transformation is the input of the next. So, a good design should make the transformations easily composable. This case is commonly implemented as a set of nested functions that are cumbersome to use. For example:
 
 ```julia-repl
 rotate(deproject(affine(coords)))
@@ -639,18 +644,18 @@ axis = rotate ∘ deproject ∘ affine ∘ coords
 axis = ∘(rotate, deproject, affine, coords)
 ```
 
-### Cartographic Projections
+## Cartographic Projections
 
 This section will focus on implementing one of these transformations, the cartographic projections.
 
 Cartographers define the transformation from a sphere to the plane as the **forward** projection and the plane to the sphere as the **inverse** or **reverse** projection. This tutorial will adhere to this convention. [WCS Paper 2](https://www.atnf.csiro.au/computing/software/wcs/ccs.pdf) presents 26 spherical projections, each with a forward and reverse algorithm. Each projection is associated with a three letter keyword, e.g., `AZP` is the zenithal or azimuthal projection and `TAN` is the gnomonic projection. The FITS keyword `CTYPEi` specifies the projection being used, where `i` is the axis index.
 
-How might this data structure of 52 forward and reverse projections be implemented in a modular and efficient manner in say C or Python?
+How might the dispatch of the 52 forward and reverse projections be implemented in a modular and efficient manner in say C or Python?
 
 * For C, **if-then-else** or **switch-case** statements would be a reasonable choice.
 * For Python, each projection can be a `class` with two methods.
 
-In each language, there would be a case statement or dictionary for each direction. For the key-value pairs, the key would be the three letter keyword for the projection type and the value would be the function name for the forward or reverse projections. In the case of C, for each new projection being added, a new `else-if` or `case` statement would have to be added to the code and then the code would need to be recompiled. In the case of Python, a new item would need to be added to a dictionary.
+In each language, there would be a case statement or dictionary for each direction using key-value pairs. The key would be the three letter keyword for the projection type and the value would be the function name for the forward or reverse projections. In the case of C, for each new projection being added, a new `else-if` or `case` statement would have to be added to the code and then the code would need to be recompiled. In the case of Python, a new item would need to be added to a dictionary.
 
 !!! note
 	The AIPS convention in radio astronomy is the inverse of the cartographic convention and defines the **forward** projection as the transformation from the plane to the sphere.
@@ -666,26 +671,28 @@ The `WorldCoordinates` package uses `project` and `deproject` for the forward an
 
 ### Azimuthal Projection
 
-The zenithal or azimuthal projection is a commonly-used and simple projection. Let's implement it.
+One of the 26 cartographic transformations is the zenithal or azimuthal projection. It is a commonly-used and simple projection. Let's implement it.
 """
 
 # ╔═╡ 1599a4b2-673d-4dce-8d63-b2a2700107b3
 md"""
 ### Azimuthal Type
 
-The azimuthal type has two projection parameters `μ` and `γ`, where `μ` is the distance of the projection point from the center of the sphere, in spherical radii; and `γ` is the angle of the plane projection in degrees (shown as θ in the above diagram). Their defaults are `0.0`.
+First, let's create the azimuthal type to store the two projection parameters, `μ` and `γ`, where `μ` is the distance of the projection point from the center of the sphere, in spherical radii; and `γ` is the angle of the plane projection in degrees (shown as θ in the above diagram). Their defaults are `0.0`.
 
 To create an `Azimuthal` type, define a `struct` with `μ` and `γ` fields:
 
 ```julia-repl
-struct Azimuthal
-	μ
-	γ
+begin
+	struct Azimuthal
+		μ
+		γ
+	end
 end
 ```
 
 !!! action
-	Create the Azimuthal type in the following cell.
+	Create the Azimuthal type in a `begin-end` block in the following cell.
 """
 
 # ╔═╡ 28be7792-62f6-4887-aab2-d57f6049f430
@@ -695,6 +702,10 @@ end
 md"""
 !!! note
 	By convention, Julia types are capitalized.
+
+!!! note
+	Henceforth, the above `begin-end` or `Azimuthal` block will be used to implement the Azimuthal type and its functions.
+
 ---
 ### Projection Functions
 
@@ -703,10 +714,10 @@ There are two ways to implement the projection functions, using either
 functions:
 
 ```julia-repl
-function project(projection, ϕ, θ)
+function (project)(ϕ, θ)
 end
 
-function deproject(projection, x, y)
+function (deproject)(x, y)
 end
 ```
 
@@ -720,17 +731,11 @@ function (deproject)(x, y)
 end
 ```
 
-Let's use the second approach.
+The second approach is more composable. So, we will use it.
 
 !!! action
-	Create stubs for the `project` and `deproject` functors in the following two cells.
+	Create stubs for the `project` and `deproject` functors in the above `Azimuthal` block.
 """
-
-# ╔═╡ 2bd90e37-554f-49ea-9df4-3d3dcc1a1b61
-
-
-# ╔═╡ 558a866f-40c1-443b-81e9-d9d89ece470d
-
 
 # ╔═╡ 04566d70-3c90-41a9-821a-af5ebfff1271
 md"""
@@ -747,14 +752,14 @@ function (deproject::Azimuthal)(x::Float64, y::Float64)
 end
 ```
 !!! action
-	Add the argument types to the functions in the above cells.
-
-!!! note
-	When no type is specified for an argument, Julia assigns the default type of `Any`.
+	Add the argument types to the functors in the above `Azimuthal` block.
 """
 
 # ╔═╡ 5526497f-b5a8-4cbb-b0b3-cc74444d7acf
 md"""
+
+!!! note
+	When no type is specified for an argument, Julia assigns the default type of `Any`.
 
 Julia will now call these functions if their arguments have Azimuthal and Float64 types. However, because they are empty, their return value is `nothing`.
 
@@ -792,9 +797,9 @@ where `ϕ` and `θ` are spherical angles in degrees, and `μ` and `γ` are the p
     These equations are nearly identical to those in WCS Paper 2.
 
 !!! action
-    Add the forward projection algorithm to the `project` functor above.
+    Add the forward projection algorithm to the `project` functor in the above `Azimuthal` block.
 
-    Return the result as a `Tuple`, or preferably, a `NameTuple`
+    Return the result as a `Tuple`, or preferably, a `NamedTuple`. See examples below.
 
 ```julia-repl
 return (x, y)                                             # Tuple
@@ -834,9 +839,14 @@ where
 wrap_180(a) = mod(a + 180.0, 360.0) - 180.0
 ```
 !!! action
-    Add the reverse projection algorithm to the `deproject` functor above and create `wrap_180` function in the following cell.
+    Add the reverse projection algorithm to the `deproject` functor in the above `Azimuthal` `begin-end` block.
 
-    Return the result as a `Tuple` or `NameTuple`.
+!!! action
+    Return the result as a `Tuple` or `NamedTuple` in the above `Azimuthal` `begin-end` block.
+
+!!! action
+    Create `wrap_180` function in the following cell.
+
 """
 
 # ╔═╡ ba47f16a-16c4-4fb3-88ba-7b7e13621664
@@ -858,8 +868,9 @@ You should now have two working functors for the `Azimuthal` projection.
 md"""
 # Abstract Types
 
-These functions will return arrays having elements with `Float64` values even if the input arrays have `Float32` values. The reason for the up-conversion is because the `μ` and `γ` fields of the `Azimuthal` type are defined to be `Float64` and Julia performs automatic up-conversion of all values to match the largest data type. Julia provides a mechanism to handle this situation. They are called **abstract types**.
-
+These functors only accept `Float64` values. Any other type will give a `MethodError`, e.g., `Int64` values give "`MethodError: no method matching (::Main.var"workspace#110".Azimuthal)(::Int64, ::Int64)`". There are two ways for them to work with other floating-point types:
+1. Create duplicate functors for every possible combination of argument types, OR
+2. Use an **abstract type**.
 ---
 """
 
@@ -867,7 +878,7 @@ These functions will return arrays having elements with `Float64` values even if
 md"""
 ## AbstractFloat
 
-Instead of defining `μ` and `γ` to be a specific floating point value, they can be defined as a subtype of the abstract type `AbstractFloat`. For example:
+Instead of defining `μ` and `γ` to be a specific concrete floating-point type, they can be defined as a subtype of the abstract type `AbstractFloat`. For example:
 
 ```julia-repl
 struct Azimuthal
@@ -881,9 +892,9 @@ struct Azimuthal{T<:AbstractFloat}
 end
 ```
 
-`μ` and `γ` can now be the floating-point type of the instantiating argument, e.g., `Float16`, `BFloat16`, `Float32`, `Float64`, `Float128`, and `BigFloat`.
+`μ` and `γ` can now be the floating-point type of the instantiating argument, e.g., `Float16`, `BFloat16`, `Float32`, `Float64`, `Float128`, `DoubleFloat`, `BigFloat`, etc., and only one functor is required.
 
-The two type definitions are both valid. However, the second is preferred, because it results in better performance.
+The two type definitions are both valid. However, the second is preferred, because it results in the best performance.
 
 !!! note
 	The second definition is called a parametric type. If `T isa Float64`, then `Azimuthal{T}` is an `Azimuthal{Float64}`, where `<:` is the subtype operator.
@@ -892,17 +903,20 @@ The two type definitions are both valid. However, the second is preferred, becau
 	Be careful when using the type `::` and subtype `<:` operators. They are not interchangeable. Arguments use the type operator `::`, while comparisons uses the subtype operator `<:`.
 
 !!! action
-	Edit the `Azimuthal` type to have `AbstractFloat`s fields in the above cell.
+    Modify the `Azimuthal` type to have `AbstractFloat`s fields in the above `Azimuthal` block.
 
-Now, if `μ` and `γ` are instantiated using `Float32`s and the input value is a `Float32`, then the return value will be a `Float32`.
+Now, if `μ` and `γ` are instantiated using `Float32`s and the input value is a `Float32`, then the return value will be a `Float32`. If the input value is a `Float64`, then the calculation will be up-converted and the return value will be a `Float64`.
 
 Let's also relax the type for `ϕ` and `θ` and make them `AbstractFloat`s.
 
 ```julia-repl
 function (project::Azimuthal)(ϕ::AbstractFloat, θ::AbstractFloat)
 
-function (deproject::Azimuthal)(ϕ::AbstractFloat, θ::AbstractFloat)
+function (deproject::Azimuthal)(x::AbstractFloat, y::AbstractFloat)
 ```
+
+!!! action
+	Change the functors arguments to be `AbstractFloat` in the above `Azimuthal` block.
 
 Note how this simplifies the code. Multiple versions of each function, i.e., one for each argument type, are not necessary. A single version will do. Julia will compile (and cache) a version for each argument type that it encounters.
 
@@ -925,7 +939,7 @@ This example shows that Julia has a type hierarchy composed of high level abstra
 md"""
 ## AbstractProjection
 
-If `Float32`, `Float64`, and `BigFloat` are subtypes of `AbstractFloat`, then `Azimuthal`, `Gnomomic`, `Conic`, and `Orthographic` are subtypes of `AbstractProjection`. Let's create an `AbstractProjection` type and make `Azimuthal` its subtype.
+The other 25 cartographic transformations can be implemented in the same way as the `Azimuthal` projection, each with a projection type and `project` and `deproject` functors. Some other projections are `Gnomonic`, `Conic`, and `Orthographic`. Just as `Float32`, `Float64`, and `BigFloat` are subtypes of `AbstractFloat`, then `Azimuthal`, `Gnomonic`, `Conic`, and `Orthographic` can be subtypes of `AbstractProjection`. Let's create an `AbstractProjection` type and make `Azimuthal` its subtype.
 
 ```julia-repl
 abstract type AbstractProjection end
@@ -941,7 +955,7 @@ abstract type AbstractProjection end
 # ╔═╡ 54a6f671-8119-430a-bafa-9986cdb9a8da
 md"""
 !!! action
-	Edit the `Azimuthal` type to be a subtype of `AbstractProjection` in the above cell.
+	Change the `Azimuthal` type to be a subtype of `AbstractProjection` in the above `Azimuthal` block.
 
 ```julia-repl
 struct Azimuthal{T<:AbstractFloat} <: AbstractProjection
@@ -1012,7 +1026,7 @@ end
 ```
 
 !!! action
-	Edit the project and deproject `Azimuthal` functors.
+	Change the `project` and `deproject` functors in the `Azimuthal` block to accept a `project` type.
 ---
 """
 
@@ -1032,7 +1046,7 @@ const PROJECTIONS = Dict("AZP" => Azimuthal, Azimuthal => "AZP")
 ```
 
 !!! action
-	Create the projection dictionary.
+	Create the projection dictionary in cell below.
 """
 
 # ╔═╡ 16f1f80c-ad76-43f4-aca6-360d8ca46e23
@@ -1057,7 +1071,7 @@ These algorithms apply to arrays of any dimension and any floating point type, a
 The following transform sequence is now fully implemented.
 
 ```julia-repl
-axis = coords ∘ affine ∘ deproject ∘ rotate
+axis = rotate ∘ deproject ∘ affine ∘ coords
 ```
 !!! action
 	Now implement the remaining 25 projection algorithms and send them to me when you are done.
@@ -1303,11 +1317,13 @@ Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
 Downloads = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
+Revise = "295af30f-e4ad-537b-8983-00126c2a3abe"
 Term = "22787eb5-b846-44ae-b979-8e399b8463ab"
 
 [compat]
-LaTeXStrings = "~1.4.0"
+LaTeXStrings = "~1.4.1"
 PlutoUI = "~0.7.76"
+Revise = "~3.18.0"
 Term = "~1.0.2"
 """
 
@@ -1315,9 +1331,9 @@ Term = "~1.0.2"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.13.2"
+julia_version = "1.13.3"
 manifest_format = "2.1"
-project_hash = "8184f189dd7127870805710c62d3b52248a589be"
+project_hash = "e2808632709af2132640077a8aa097fefd584aa5"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -1338,16 +1354,33 @@ version = "1.11.0"
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 version = "1.11.0"
 
+[[deps.CRC32c]]
+uuid = "8bf52ea8-c179-5cab-976a-9e18b702a9bc"
+version = "1.11.0"
+
+[[deps.CodeTracking]]
+deps = ["InteractiveUtils", "REPL", "UUIDs"]
+git-tree-sha1 = "cfb7a2e89e245a9d5016b70323db412b3a7438d5"
+registries = "General"
+uuid = "da1fd8a2-8d9e-5ec2-8556-3022fb5608a2"
+version = "3.0.2"
+
 [[deps.ColorTypes]]
 deps = ["FixedPointNumbers", "Random"]
-git-tree-sha1 = "67e11ee83a43eb71ddc950302c53bf33f0690dfe"
+git-tree-sha1 = "a7cf827a79b378a381e31e5c7feca853ec19cb94"
 registries = "General"
 uuid = "3da002f7-5984-5a60-b8a6-cbb66c0b333f"
-version = "0.12.1"
+version = "0.12.4"
 weakdeps = ["StyledStrings"]
 
     [deps.ColorTypes.extensions]
     StyledStringsExt = "StyledStrings"
+
+[[deps.Compiler]]
+git-tree-sha1 = "382d79bfe72a406294faca39ef0c3cef6e6ce1f1"
+registries = "General"
+uuid = "807dbc54-b67e-4c79-8afb-eafe4df6f2e1"
+version = "0.1.1"
 
 [[deps.CompilerSupportLibraries_jll]]
 deps = ["Artifacts", "Libdl"]
@@ -1387,11 +1420,11 @@ uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 version = "1.11.0"
 
 [[deps.FixedPointNumbers]]
-deps = ["Statistics"]
-git-tree-sha1 = "05882d6995ae5c12bb5f36dd2ed3f61c98cbb172"
+deps = ["Random", "Statistics"]
+git-tree-sha1 = "59af96b98217c6ef4ae0dfe065ac7c20831d1a84"
 registries = "General"
 uuid = "53c48c17-4a7d-5ca2-90c5-79b7896eea93"
-version = "0.8.5"
+version = "0.8.6"
 
 [[deps.Highlights]]
 deps = ["DocStringExtensions", "InteractiveUtils", "REPL"]
@@ -1432,16 +1465,23 @@ registries = "General"
 uuid = "82899510-4779-5014-852e-03e436cf321d"
 version = "1.0.0"
 
+[[deps.JuliaInterpreter]]
+deps = ["CodeTracking", "InteractiveUtils", "Random"]
+git-tree-sha1 = "cd2354616d4e6e3eaf27c74322971e2967449e6a"
+registries = "General"
+uuid = "aa1ae85d-cabe-5617-a682-6adf51b2e16a"
+version = "0.12.1"
+
 [[deps.JuliaSyntaxHighlighting]]
 deps = ["StyledStrings"]
 uuid = "ac6e5ff7-fb65-4e79-a425-ec3bc9c03011"
 version = "1.12.0"
 
 [[deps.LaTeXStrings]]
-git-tree-sha1 = "dda21b8cbd6a6c40d9d02a73230f9d70fed6918c"
+git-tree-sha1 = "f88f3ccef05a6a72a0cf0ed417c8fd68530f4ab2"
 registries = "General"
 uuid = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
-version = "1.4.0"
+version = "1.4.1"
 
 [[deps.LibCURL]]
 deps = ["LibCURL_jll", "MozillaCACerts_jll"]
@@ -1481,6 +1521,13 @@ version = "1.13.0"
 uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
 version = "1.11.0"
 
+[[deps.LoweredCodeUtils]]
+deps = ["CodeTracking", "Compiler", "JuliaInterpreter"]
+git-tree-sha1 = "f0017e64c155b65d67ff41ae14d569cc9d014d07"
+registries = "General"
+uuid = "6f1432cf-f94c-5a45-995e-cdbf5db27b0b"
+version = "3.10.1"
+
 [[deps.MIMEs]]
 git-tree-sha1 = "c64d943587f7187e751162b3b84445bbbd79f691"
 registries = "General"
@@ -1494,7 +1541,7 @@ version = "1.11.0"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2026.8.13"
+version = "2026.10.20"
 
 [[deps.MyterialColors]]
 git-tree-sha1 = "01d8466fb449436348999d7c6ad740f8f853a579"
@@ -1517,15 +1564,15 @@ uuid = "458c3c95-2e84-50aa-8efc-19380b2a3a95"
 version = "3.5.8+0"
 
 [[deps.OrderedCollections]]
-git-tree-sha1 = "05868e21324cede2207c6f0f466b4bfef6d5e7ee"
+git-tree-sha1 = "94ba93778373a53bfd5a0caaf7d809c445292ff4"
 registries = "General"
 uuid = "bac558e1-5e72-5ebc-8fee-abe8a469f55d"
-version = "1.8.1"
+version = "1.8.2"
 
 [[deps.PCRE2_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "efcefdf7-47ab-520b-bdef-62a2eaa19f15"
-version = "10.46.0+0"
+version = "10.47.0+0"
 
 [[deps.Parameters]]
 deps = ["OrderedCollections", "UnPack"]
@@ -1549,6 +1596,13 @@ git-tree-sha1 = "0d751d4ceb9dbd402646886332c2f99169dc1cfd"
 registries = "General"
 uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 version = "0.7.76"
+
+[[deps.Preferences]]
+deps = ["TOML"]
+git-tree-sha1 = "aef1987d90dcc2e2cbd919ad10b2d25bcce4f418"
+registries = "General"
+uuid = "21216c6a-2e73-6563-6e65-726566657250"
+version = "1.6.1"
 
 [[deps.Printf]]
 deps = ["Unicode"]
@@ -1578,6 +1632,19 @@ registries = "General"
 uuid = "189a3867-3050-52da-a836-e630ba90ab69"
 version = "1.2.2"
 
+[[deps.Revise]]
+deps = ["CRC32c", "CodeTracking", "FileWatching", "JuliaInterpreter", "LibGit2", "LoweredCodeUtils", "OrderedCollections", "Preferences", "REPL", "Serialization", "UUIDs"]
+git-tree-sha1 = "da47b1bd8be0a3f80073d9b8bf0c614a3c474d58"
+registries = "General"
+uuid = "295af30f-e4ad-537b-8983-00126c2a3abe"
+version = "3.18.0"
+
+    [deps.Revise.extensions]
+    DistributedExt = "Distributed"
+
+    [deps.Revise.weakdeps]
+    Distributed = "8ba89e20-285c-5b6f-9357-94700520ee1b"
+
 [[deps.SHA]]
 uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
 version = "1.0.0"
@@ -1592,10 +1659,10 @@ version = "1.11.0"
 
 [[deps.Statistics]]
 deps = ["LinearAlgebra"]
-git-tree-sha1 = "ae3bb1eb3bba077cd276bc5cfc337cc65c3075c0"
+git-tree-sha1 = "e2b53ce13a53367e96601081e33d34746b571bad"
 registries = "General"
 uuid = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
-version = "1.11.1"
+version = "1.11.5"
 
     [deps.Statistics.extensions]
     SparseArraysExt = ["SparseArrays"]
@@ -1621,10 +1688,10 @@ version = "1.0.1"
 
 [[deps.Tables]]
 deps = ["DataAPI", "DataValueInterfaces", "IteratorInterfaceExtensions", "OrderedCollections", "TableTraits"]
-git-tree-sha1 = "f2c1efbc8f3a609aadf318094f8fc5204bdaf344"
+git-tree-sha1 = "a94d9bdda1b7bed0046cea645639ab3f62196fac"
 registries = "General"
 uuid = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
-version = "1.12.1"
+version = "1.14.0"
 
 [[deps.Tar]]
 deps = ["ArgTools", "SHA"]
@@ -1650,10 +1717,11 @@ uuid = "410a4b4d-49e4-4fbc-ab6d-cb71b17b3775"
 version = "0.1.13"
 
 [[deps.URIs]]
-git-tree-sha1 = "bef26fb046d031353ef97a82e3fdb6afe7f21b1a"
+deps = ["Serialization"]
+git-tree-sha1 = "50eda8011f098869a76da69a524ff59e0298711a"
 registries = "General"
 uuid = "5c2747f8-b7ea-4ff2-ba2e-563bfd36b1d4"
-version = "1.6.1"
+version = "1.7.2"
 
 [[deps.UUIDs]]
 deps = ["Random", "SHA"]
@@ -1782,8 +1850,6 @@ uuid = "23338594-aafe-5451-b93e-139f81909106"
 # ╟─1599a4b2-673d-4dce-8d63-b2a2700107b3
 # ╠═28be7792-62f6-4887-aab2-d57f6049f430
 # ╟─0c6fd841-2c4f-4f53-951f-1c239fbc1caf
-# ╠═2bd90e37-554f-49ea-9df4-3d3dcc1a1b61
-# ╠═558a866f-40c1-443b-81e9-d9d89ece470d
 # ╟─04566d70-3c90-41a9-821a-af5ebfff1271
 # ╟─5526497f-b5a8-4cbb-b0b3-cc74444d7acf
 # ╟─0668c005-64c0-48f6-b5dd-fcbc297438cc
